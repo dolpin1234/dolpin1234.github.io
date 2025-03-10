@@ -46,7 +46,7 @@ function render() {
 
 // Resize viewport when window size changes
 window.addEventListener('resize', () => {
-    const canvas_size = Math.min(window.innerWidth, window.innerHeight);
+    const canvas_size = Math.min(window.innerWidth, window.innerHeight, 500);
     canvas.width = canvas_size;
     canvas.height = canvas_size;
     gl.viewport(0, 0, canvas.width, canvas.height);
