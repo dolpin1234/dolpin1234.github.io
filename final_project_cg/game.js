@@ -1,3 +1,8 @@
+// 업데이트 사항 (박재현)
+// 1. 초반에 행성 3개 소환 후 화성을 만드는데, 이는 그냥 행성 1개를 만드는 것과 동일하여 createTestPlanet 함수 수정
+// 2. 행성이 중력장 내에 위치하고 충분한 시간이 지나도 떨림 현상 발생. 이를 방지하기 위해 추가 코드 작성.
+// 3. 발사 파워에서 게이지가 제대로 표시 안된점 수정
+
 // 게임 설정 상수들 (UI에서 제어 가능)
 const GAME_CONFIG = {
     gravity: 23.5,     // 중력 세기
@@ -106,6 +111,12 @@ const GAME_AREA = {
     height: GAME_CONFIG.areaSize * 2  // 높이도 설정에서 가져오기
 };
 
+/* 떨림 억제용 추가 상수  (박재현) */
+const DEAD_ZONE         = 0.15;   // 중앙 r < DEAD_ZONE 구간엔 중력 없음
+const SNAP_SPEED        = 0.03;   // |v| < SNAP_SPEED 이면 즉시 0으로 스냅
+const MAX_SPEED_SLEEP   = 8.0;    // 기존 maxSpeed 그대로 쓰도록 상수화
+const SLEEP_SPEED = 0.05; // |v| < 0.05 m/s 이면 강제 sleep
+
 // 라이브러리 로딩 확인 및 초기화
 function checkLibrariesAndInit() {
     console.log('라이브러리 확인 중...');
@@ -149,6 +160,8 @@ function init() {
         
         // Cannon.js 물리 엔진 설정 (중력 없음 - 직접 구현)
         world = new CANNON.World();
+        world.solver.iterations = 20;  // 계산 정밀도 up (박재현)
+        world.solver.tolerance  = 1e-3; // (박재현)
         world.gravity.set(0, 0, 0); // 기본 중력 제거
         world.broadphase = new CANNON.NaiveBroadphase();
         
@@ -426,9 +439,12 @@ function updateAimingPlanet() {
 // 테스트용 초기 행성들 생성 (게임 영역 내부에)
 function createTestPlanets() {
     // 중앙에 몇 개의 행성을 미리 배치해서 게임이 제대로 작동하는지 확인
-    createPlanet(0, new THREE.Vector3(0, -1, 0)); // 달
-    createPlanet(1, new THREE.Vector3(1, -1, 0)); // 수성
-    createPlanet(0, new THREE.Vector3(-1, -1, 0)); // 달
+    //createPlanet(0, new THREE.Vector3(0, -1, 0)); // 달
+    //createPlanet(1, new THREE.Vector3(1, -1, 0)); // 수성
+    //createPlanet(0, new THREE.Vector3(-1, -1, 0)); // 달
+
+    // 이러면 처음에 행성 3개가 생성되고 합쳐지는건데, 그냥 1개로 합침. (박재현)
+    createPlanet(4, new THREE.Vector3(0, -1, 0)); // 화성 ( 박재현)
 }
 
 // 게임 영역 생성 (더 명확한 구체)
@@ -546,7 +562,7 @@ function setupEventListeners() {
             
             // 드래그 벡터 계산
             const dragVector = new THREE.Vector2().subVectors(dragEnd, dragStart);
-            const rawPower = dragVector.length() * 10;
+            const rawPower = dragVector.length() * (GAME_CONFIG.maxPower / 2); // 최대 파워의 절반을 기준으로 계산 (박재현)
             launchPower = Math.min(rawPower, GAME_CONFIG.maxPower); // 설정에서 최대 파워 가져오기
             
             // 디버깅: 파워 계산 로그
@@ -774,6 +790,16 @@ function createPlanet(type, position) {
     body.material = new CANNON.Material();
     body.material.restitution = 0.1; // 반발력을 0.4에서 0.1로 크게 감소
     body.material.friction = 0.8; // 마찰력 증가로 안정성 향상
+
+    /*  떨림 방지 속성 추가 (박재현)  */
+    body.linearDamping   = 0.2;   // 남은 직선 속도 빨리 감쇠
+    body.angularDamping  = 0.2;   // 남은 회전 속도 빨리 감쇠
+    body.allowSleep      = true;  // 느려지면 계산 제외
+    body.sleepSpeedLimit = 0.05;  // |v| < 0.05 m/s 이면
+    body.sleepTimeLimit  = 0.5;   // 0.5초 지속되면 sleep
+    body.linearDamping  = 0.4;   // 0.2 → 0.4   더 빨리 속도 죽임
+    body.angularDamping = 0.4;
+    /* 여기까지.*/
     
     const planet = {
         type: type,
@@ -829,6 +855,28 @@ function createPlanet(type, position) {
     planets.push(planet);
     console.log(`총 행성 수: ${planets.length}`);
     return planet;
+}
+
+/* 떨림 억제용 보정(박재현) */
+function stabilisePlanets() {
+    planets.forEach(planet => {
+        // 1) Dead-zone : 중심 아주 근처면 힘 제거
+        const pos   = planet.body.position;
+        const dist2 = pos.x*pos.x + pos.y*pos.y + pos.z*pos.z;
+        if (dist2 < DEAD_ZONE * DEAD_ZONE) {           // r < DEAD_ZONE
+            planet.body.force.set(0, 0, 0);
+        }
+
+        // 2) 저속 스냅 : 미세 진동 제거
+        const v       = planet.body.velocity;
+        const speed2  = v.x*v.x + v.y*v.y + v.z*v.z;
+        if (speed2 < SNAP_SPEED * SNAP_SPEED) {        // |v| < SNAP_SPEED
+            v.set(0, 0, 0);
+            planet.body.angularVelocity.set(0, 0, 0);
+            planet.body.sleep();              // 강제 수면 (박재현)
+            planet.body.force.set(0, 0, 0);   // 잔여 힘 제거 (박재현   )
+        }
+    });
 }
 
 // 중앙으로 끌어당기는 중력 적용 (안정화 개선)
@@ -1238,6 +1286,7 @@ function animate() {
     // 중앙으로 끌어당기는 중력 적용
     if (gameRunning) {
         applyCentralGravity();
+        stabilisePlanets();   // 떨림 억제 (박재현)
     }
     
     // 물리 시뮬레이션 업데이트
