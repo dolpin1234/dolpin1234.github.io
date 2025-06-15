@@ -1,7 +1,8 @@
 // 업데이트 사항 (박재현)
 // 1. 초반에 행성 3개 소환 후 화성을 만드는데, 이는 그냥 행성 1개를 만드는 것과 동일하여 createTestPlanet 함수 수정
 // 2. 행성이 중력장 내에 위치하고 충분한 시간이 지나도 떨림 현상 발생. 이를 방지하기 위해 추가 코드 작성.
-// 3. 발사 파워에서 게이지가 제대로 표시 안된점 수정
+// 3. 발사 파워에서 게이지가 제대로 표시 안된점 수정, 최대 100% 까지 표시는되는데, 실제론 50%임 (50%를 100%로 표시되게.)
+// 4. 발사시 딜레이 추가. 1초.
 
 // 게임 설정 상수들 (UI에서 제어 가능)
 const GAME_CONFIG = {
@@ -67,8 +68,10 @@ let dragStart = new THREE.Vector2();
 let dragEnd = new THREE.Vector2();
 let launchPower = 0;
 let trajectoryLine;
-let aimingPlanet; // 조준 중인 행성
+let aimingPlanet; // 조준용 행성
 let crosshair; // 십자선
+let isLaunching = false; // 발사 중복 방지를 위한 상태 변수 추가
+let canDrag = true; // 드래그 가능 여부를 나타내는 변수 추가 (박재현)
 
 // 카메라 공전 시스템 변수들
 let cameraAngle = 0; // Y축 기준 회전 각도 (라디안)
@@ -160,8 +163,6 @@ function init() {
         
         // Cannon.js 물리 엔진 설정 (중력 없음 - 직접 구현)
         world = new CANNON.World();
-        world.solver.iterations = 20;  // 계산 정밀도 up (박재현)
-        world.solver.tolerance  = 1e-3; // (박재현)
         world.gravity.set(0, 0, 0); // 기본 중력 제거
         world.broadphase = new CANNON.NaiveBroadphase();
         
@@ -373,10 +374,9 @@ function updateTrajectory(startPos, velocity) {
 
 // 행성 발사 (카메라 기준 고정 위치에서 발사)
 function launchPlanet(direction, power) {
-    if (!gameRunning) return;
+    if (!gameRunning || isLaunching) return; // 이미 발사 중이면 리턴
     
-    // 실제 파워를 절반으로 줄임 (박재현)
-    const actualPower = power * 0.5;
+    isLaunching = true; // 발사 시작
     
     // 카메라 기준 좌표계 설정
     const cameraDirection = new THREE.Vector3(
@@ -393,10 +393,10 @@ function launchPlanet(direction, power) {
         .addScaledVector(cameraDirection, -3) // 카메라에서 3만큼 앞쪽
         .addScaledVector(upVector, -2); // 아래쪽 2만큼
     
-    const startPos = camera.position.clone().add(launchOffset);
+    const startPosition = camera.position.clone().add(launchOffset);
     
     // 디버깅: 카메라 높이와 발사 위치 로그
-    console.log(`🎯 궤적 디버깅: 카메라(${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}) → 발사위치(${startPos.x.toFixed(1)}, ${startPos.y.toFixed(1)}, ${startPos.z.toFixed(1)})`);
+    console.log(`🎯 궤적 디버깅: 카메라(${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}) → 발사위치(${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)}, ${startPosition.z.toFixed(1)})`);
     
     // 마우스 드래그 방향을 월드 좌표계로 변환
     const worldDirection = new THREE.Vector3()
@@ -413,14 +413,14 @@ function launchPlanet(direction, power) {
         worldDirection.normalize();
     }
     
-    const velocity = worldDirection.clone().multiplyScalar(actualPower);
+    const velocity = worldDirection.clone().multiplyScalar(power);
     
     console.log(`행성 발사! 카메라 각도: ${(cameraAngle * 180 / Math.PI).toFixed(1)}°`);
     console.log(`카메라 위치: (${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)})`);
-    console.log(`발사 위치: (${startPos.x.toFixed(1)}, ${startPos.y.toFixed(1)}, ${startPos.z.toFixed(1)})`);
+    console.log(`발사 위치: (${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)}, ${startPosition.z.toFixed(1)})`);
     console.log(`발사 방향: (${worldDirection.x.toFixed(2)}, ${worldDirection.y.toFixed(2)}, ${worldDirection.z.toFixed(2)})`);
     
-    const newPlanet = createPlanet(nextPlanetType, startPos);
+    const newPlanet = createPlanet(nextPlanetType, startPosition);
     newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
     
     // 다음 행성 설정
@@ -429,6 +429,11 @@ function launchPlanet(direction, power) {
     
     // 궤적 라인 숨기기
     trajectoryLine.visible = false;
+    
+    // 발사 완료 후 상태 초기화 (약간의 지연 후)
+    setTimeout(() => {
+        isLaunching = false;
+    }, 500);
 }
 
 // 조준용 행성 업데이트
@@ -442,10 +447,6 @@ function updateAimingPlanet() {
 // 테스트용 초기 행성들 생성 (게임 영역 내부에)
 function createTestPlanets() {
     // 중앙에 몇 개의 행성을 미리 배치해서 게임이 제대로 작동하는지 확인
-    //createPlanet(0, new THREE.Vector3(0, -1, 0)); // 달
-    //createPlanet(1, new THREE.Vector3(1, -1, 0)); // 수성
-    //createPlanet(0, new THREE.Vector3(-1, -1, 0)); // 달
-
     // 이러면 처음에 행성 3개가 생성되고 합쳐지는건데, 그냥 1개로 합침. (박재현)
     createPlanet(4, new THREE.Vector3(0, -1, 0)); // 화성 ( 박재현)
 }
@@ -540,7 +541,7 @@ function updatePlanetPreview() {
 function setupEventListeners() {
     // 마우스 다운 (드래그 시작)
     renderer.domElement.addEventListener('mousedown', (event) => {
-        if (!gameRunning) return;
+        if (!gameRunning || !canDrag) return;
         
         isDragging = true;
         dragStart.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -565,19 +566,19 @@ function setupEventListeners() {
             
             // 드래그 벡터 계산
             const dragVector = new THREE.Vector2().subVectors(dragEnd, dragStart);
+            const rawPower = dragVector.length() * 10;
             
-            // 화면 크기에 맞게 정규화 (화면의 절반만 드래그해도 100%가 되도록) (박재현)
-            const maxDragDistance = Math.min(window.innerWidth, window.innerHeight) / 4; // 화면 크기의 1/4을 최대 거리로
-            const dragDistance = Math.sqrt(dragVector.x * dragVector.x + dragVector.y * dragVector.y);
-            const normalizedDistance = Math.min(dragDistance / maxDragDistance, 1);
+            // 파워 계산 로직 수정 (박재현)
+            // 실제 파워는 최대 파워의 50%까지만 사용
+            const maxDragPower = GAME_CONFIG.maxPower * 0.5;
+            const actualPower = Math.min(rawPower, maxDragPower);
             
-            // 정규화된 거리를 파워로 변환 (박재현)
-            const rawPower = normalizedDistance * GAME_CONFIG.maxPower;
-            launchPower = Math.min(rawPower, GAME_CONFIG.maxPower);
+            // 파워 게이지 표시는 100% 스케일로 보여줌 (박재현)
+            launchPower = actualPower * 2;
             
-            // 디버깅: 파워 계산 로그 (박재현)
+            // 디버깅: 파워 계산 로그
             if (Math.floor(Date.now() / 500) % 2 === 0) { // 0.5초마다 로그 출력 (너무 많은 로그 방지)
-                console.log(`🎯 발사 파워: 드래그거리=${dragDistance.toFixed(1)}, 정규화거리=${normalizedDistance.toFixed(2)}, 파워=${launchPower.toFixed(1)} (최대: ${GAME_CONFIG.maxPower})`);
+                console.log(`🎯 발사 파워: 원시값 ${rawPower.toFixed(1)} → 실제값 ${actualPower.toFixed(1)} → 표시값 ${launchPower.toFixed(1)} (최대: ${GAME_CONFIG.maxPower})`);
             }
             
             // 발사 방향 계산 (드래그 반대 방향)
@@ -668,48 +669,68 @@ function setupEventListeners() {
             const dragVector = new THREE.Vector2().subVectors(dragEnd, dragStart);
             const direction = new THREE.Vector3(-dragVector.x, -dragVector.y, -1).normalize();
             
-            launchPlanet(direction, launchPower);
+            // 실제 발사 파워는 표시된 파워의 절반으로 설정 (박재현)
+            const actualLaunchPower = launchPower * 0.5;
+            
+            // 드래그 불가능 상태로 설정 (박재현)
+            canDrag = false;
+            
+            // 1초 후 드래그 가능 상태로 복구 (박재현)
+            setTimeout(() => {
+                canDrag = true;
+                console.log('드래그 가능 상태로 복구');
+            }, 1000);
+            
+            launchPlanet(direction, actualLaunchPower);
+            
+            // 조준용 행성을 원래 위치로 되돌리기
+            if (aimingPlanet) {
+                const cameraDirection = new THREE.Vector3(
+                    Math.sin(cameraAngle),
+                    0,
+                    Math.cos(cameraAngle)
+                ).normalize();
+                
+                const upVector = new THREE.Vector3(0, 1, 0);
+                
+                const launchOffset = new THREE.Vector3()
+                    .addScaledVector(cameraDirection, -3) // 카메라에서 3만큼 앞쪽
+                    .addScaledVector(upVector, -2); // 아래쪽 2만큼
+                
+                const aimingPosition = camera.position.clone().add(launchOffset);
+                aimingPlanet.position.copy(aimingPosition);
+                
+                // 크기도 원래대로 되돌리기
+                aimingPlanet.scale.setScalar(1);
+            }
+            
+            // 궤적 라인 숨기기
+            trajectoryLine.visible = false;
+            
+            // UI 업데이트
+            if (window.showTrajectoryInfo) {
+                window.showTrajectoryInfo(false);
+            }
+            if (window.updatePowerMeter) {
+                window.updatePowerMeter(0);
+            }
+            
+            console.log('드래그 종료, 발사!');
         }
-        
-        // 조준용 행성을 원래 위치로 되돌리기
-        if (aimingPlanet) {
+    });
+    
+    // 키보드 이벤트 (부드러운 카메라 움직임)
+    window.addEventListener('keydown', (event) => {
+        if (event.key === ' ') { // 스페이스바로 직진 발사
+            // 카메라 방향을 기준으로 발사 방향 설정
             const cameraDirection = new THREE.Vector3(
                 Math.sin(cameraAngle),
                 0,
                 Math.cos(cameraAngle)
             ).normalize();
             
-            const upVector = new THREE.Vector3(0, 1, 0);
-            
-            const launchOffset = new THREE.Vector3()
-                .addScaledVector(cameraDirection, -3) // 카메라에서 3만큼 앞쪽
-                .addScaledVector(upVector, -2); // 아래쪽 2만큼
-            
-            const aimingPosition = camera.position.clone().add(launchOffset);
-            aimingPlanet.position.copy(aimingPosition);
-            
-            // 크기도 원래대로 되돌리기
-            aimingPlanet.scale.setScalar(1);
-        }
-        
-        // 궤적 라인 숨기기
-        trajectoryLine.visible = false;
-        
-        // UI 업데이트
-        if (window.showTrajectoryInfo) {
-            window.showTrajectoryInfo(false);
-        }
-        if (window.updatePowerMeter) {
-            window.updatePowerMeter(0);
-        }
-        
-        console.log('드래그 종료, 발사!');
-    });
-    
-    // 키보드 이벤트 (부드러운 카메라 움직임)
-    window.addEventListener('keydown', (event) => {
-        if (event.key === ' ') { // 스페이스바로 직진 발사
-            const direction = new THREE.Vector3(0, 0, -1);
+            // 카메라가 바라보는 방향으로 발사
+            const direction = cameraDirection;
             launchPlanet(direction, 8);
         }
         
@@ -800,7 +821,7 @@ function createPlanet(type, position) {
     body.material = new CANNON.Material();
     body.material.restitution = 0.1; // 반발력을 0.4에서 0.1로 크게 감소
     body.material.friction = 0.8; // 마찰력 증가로 안정성 향상
-
+    
     /*  떨림 방지 속성 추가 (박재현)  */
     body.linearDamping   = 0.2;   // 남은 직선 속도 빨리 감쇠
     body.angularDamping  = 0.2;   // 남은 회전 속도 빨리 감쇠
@@ -865,28 +886,6 @@ function createPlanet(type, position) {
     planets.push(planet);
     console.log(`총 행성 수: ${planets.length}`);
     return planet;
-}
-
-/* 떨림 억제용 보정(박재현) */
-function stabilisePlanets() {
-    planets.forEach(planet => {
-        // 1) Dead-zone : 중심 아주 근처면 힘 제거
-        const pos   = planet.body.position;
-        const dist2 = pos.x*pos.x + pos.y*pos.y + pos.z*pos.z;
-        if (dist2 < DEAD_ZONE * DEAD_ZONE) {           // r < DEAD_ZONE
-            planet.body.force.set(0, 0, 0);
-        }
-
-        // 2) 저속 스냅 : 미세 진동 제거
-        const v       = planet.body.velocity;
-        const speed2  = v.x*v.x + v.y*v.y + v.z*v.z;
-        if (speed2 < SNAP_SPEED * SNAP_SPEED) {        // |v| < SNAP_SPEED
-            v.set(0, 0, 0);
-            planet.body.angularVelocity.set(0, 0, 0);
-            planet.body.sleep();              // 강제 수면 (박재현)
-            planet.body.force.set(0, 0, 0);   // 잔여 힘 제거 (박재현   )
-        }
-    });
 }
 
 // 중앙으로 끌어당기는 중력 적용 (안정화 개선)
@@ -1400,6 +1399,28 @@ function updateCameraMovement() {
         cameraHeight += cameraHeightVelocity;
         updateCameraPosition();
     }
+}
+
+/* 떨림 억제용 보정(박재현) */
+function stabilisePlanets() {
+    planets.forEach(planet => {
+        // 1) Dead-zone : 중심 아주 근처면 힘 제거
+        const pos   = planet.body.position;
+        const dist2 = pos.x*pos.x + pos.y*pos.y + pos.z*pos.z;
+        if (dist2 < DEAD_ZONE * DEAD_ZONE) {           // r < DEAD_ZONE
+            planet.body.force.set(0, 0, 0);
+        }
+
+        // 2) 저속 스냅 : 미세 진동 제거
+        const v       = planet.body.velocity;
+        const speed2  = v.x*v.x + v.y*v.y + v.z*v.z;
+        if (speed2 < SNAP_SPEED * SNAP_SPEED) {        // |v| < SNAP_SPEED
+            v.set(0, 0, 0);
+            planet.body.angularVelocity.set(0, 0, 0);
+            planet.body.sleep();              // 강제 수면 (박재현)
+            planet.body.force.set(0, 0, 0);   // 잔여 힘 제거 (박재현   )
+        }
+    });
 }
 
 // 게임 시작 (라이브러리 로딩 확인 후)
