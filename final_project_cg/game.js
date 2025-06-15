@@ -375,6 +375,9 @@ function updateTrajectory(startPos, velocity) {
 function launchPlanet(direction, power) {
     if (!gameRunning) return;
     
+    // 실제 파워를 절반으로 줄임 (박재현현
+    const actualPower = power * 0.5;
+    
     // 카메라 기준 좌표계 설정
     const cameraDirection = new THREE.Vector3(
         Math.sin(cameraAngle),
@@ -390,10 +393,10 @@ function launchPlanet(direction, power) {
         .addScaledVector(cameraDirection, -3) // 카메라에서 3만큼 앞쪽
         .addScaledVector(upVector, -2); // 아래쪽 2만큼
     
-    const startPosition = camera.position.clone().add(launchOffset);
+    const startPos = camera.position.clone().add(launchOffset);
     
     // 디버깅: 카메라 높이와 발사 위치 로그
-    console.log(`🎯 궤적 디버깅: 카메라(${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}) → 발사위치(${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)}, ${startPosition.z.toFixed(1)})`);
+    console.log(`🎯 궤적 디버깅: 카메라(${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}) → 발사위치(${startPos.x.toFixed(1)}, ${startPos.y.toFixed(1)}, ${startPos.z.toFixed(1)})`);
     
     // 마우스 드래그 방향을 월드 좌표계로 변환
     const worldDirection = new THREE.Vector3()
@@ -410,14 +413,14 @@ function launchPlanet(direction, power) {
         worldDirection.normalize();
     }
     
-    const velocity = worldDirection.clone().multiplyScalar(power);
+    const velocity = worldDirection.clone().multiplyScalar(actualPower);
     
     console.log(`행성 발사! 카메라 각도: ${(cameraAngle * 180 / Math.PI).toFixed(1)}°`);
     console.log(`카메라 위치: (${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)})`);
-    console.log(`발사 위치: (${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)}, ${startPosition.z.toFixed(1)})`);
+    console.log(`발사 위치: (${startPos.x.toFixed(1)}, ${startPos.y.toFixed(1)}, ${startPos.z.toFixed(1)})`);
     console.log(`발사 방향: (${worldDirection.x.toFixed(2)}, ${worldDirection.y.toFixed(2)}, ${worldDirection.z.toFixed(2)})`);
     
-    const newPlanet = createPlanet(nextPlanetType, startPosition);
+    const newPlanet = createPlanet(nextPlanetType, startPos);
     newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
     
     // 다음 행성 설정
@@ -562,12 +565,21 @@ function setupEventListeners() {
             
             // 드래그 벡터 계산
             const dragVector = new THREE.Vector2().subVectors(dragEnd, dragStart);
-            const rawPower = dragVector.length() * (GAME_CONFIG.maxPower / 2); // 최대 파워의 절반을 기준으로 계산 (박재현)
-            launchPower = Math.min(rawPower, GAME_CONFIG.maxPower); // 설정에서 최대 파워 가져오기
+            
+            // 화면 크기에 맞게 정규화 (화면의 절반만 드래그해도 100%가 되도록)
+            const normalizedX = Math.abs(dragVector.x) / (window.innerWidth / 4); // 화면 너비의 1/4만 드래그해도 100%
+            const normalizedY = Math.abs(dragVector.y) / (window.innerHeight / 4); // 화면 높이의 1/4만 드래그해도 100%
+            
+            // 대각선 방향도 고려하여 정규화된 거리 계산
+            const normalizedDistance = Math.min(Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY), 1);
+            
+            // 정규화된 거리를 파워로 변환 (최대 파워의 절반으로 제한)
+            const rawPower = normalizedDistance * GAME_CONFIG.maxPower;
+            launchPower = Math.min(rawPower, GAME_CONFIG.maxPower);
             
             // 디버깅: 파워 계산 로그
             if (Math.floor(Date.now() / 500) % 2 === 0) { // 0.5초마다 로그 출력 (너무 많은 로그 방지)
-                console.log(`🎯 발사 파워: 원시값 ${rawPower.toFixed(1)} → 제한값 ${launchPower.toFixed(1)} (최대: ${GAME_CONFIG.maxPower})`);
+                console.log(`🎯 발사 파워: 정규화거리=${normalizedDistance.toFixed(2)}, 파워=${launchPower.toFixed(1)} (최대: ${GAME_CONFIG.maxPower})`);
             }
             
             // 발사 방향 계산 (드래그 반대 방향)
