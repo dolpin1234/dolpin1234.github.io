@@ -372,65 +372,42 @@ function updateTrajectory(startPos, velocity) {
     console.log(`궤적 총 길이: ${trajectoryLength.toFixed(2)} units`);
 }
 
-// 행성 발사 (카메라 기준 고정 위치에서 발사)
+// 발사 함수 (박재현: 스페이스바 발사 시 현재 위치에서 바로 발사)
 function launchPlanet(direction, power) {
-    if (!gameRunning || isLaunching) return; // 이미 발사 중이면 리턴
+    if (isLaunching) return; // 이미 발사 중이면 무시
+    isLaunching = true;
     
-    isLaunching = true; // 발사 시작
-    
-    // 카메라 기준 좌표계 설정
-    const cameraDirection = new THREE.Vector3(
-        Math.sin(cameraAngle),
-        0,
-        Math.cos(cameraAngle)
-    ).normalize();
-    
-    const rightVector = new THREE.Vector3().crossVectors(cameraDirection, new THREE.Vector3(0, 1, 0)).normalize();
-    const upVector = new THREE.Vector3(0, 1, 0);
-    
-    // 카메라 기준 고정 발사 위치 (화면 하단 중앙에서 약간 앞쪽)
-    const launchOffset = new THREE.Vector3()
-        .addScaledVector(cameraDirection, -3) // 카메라에서 3만큼 앞쪽
-        .addScaledVector(upVector, -2); // 아래쪽 2만큼
-    
-    const startPosition = camera.position.clone().add(launchOffset);
-    
-    // 디버깅: 카메라 높이와 발사 위치 로그
-    console.log(`🎯 궤적 디버깅: 카메라(${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}) → 발사위치(${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)}, ${startPosition.z.toFixed(1)})`);
-    
-    // 마우스 드래그 방향을 월드 좌표계로 변환
-    const worldDirection = new THREE.Vector3()
-        .addScaledVector(rightVector, -direction.x) // 좌우 방향
-        .addScaledVector(upVector, direction.y)     // 상하 방향
-        .addScaledVector(cameraDirection, -direction.z) // 전후 방향 (카메라 쪽으로)
-        .normalize();
-    
-    // 카메라 쪽으로 날아가는 것을 방지 (z 성분을 양수로 제한)
-    const cameraDot = worldDirection.dot(cameraDirection);
-    if (cameraDot > 0) {
-        // 카메라 방향 성분을 제거하고 재정규화
-        worldDirection.addScaledVector(cameraDirection, -cameraDot);
-        worldDirection.normalize();
+    // 스페이스바 발사인 경우 (박재현: 현재 위치에서 바로 발사)
+    if (direction.z === -1) {
+        // 카메라가 바라보는 방향 계산
+        const cameraDirection = new THREE.Vector3(
+            Math.sin(cameraAngle),
+            0,
+            Math.cos(cameraAngle)
+        ).normalize();
+        
+        // 현재 조준 행성의 위치에서 바로 발사
+        const startPosition = aimingPlanet.position.clone();
+        const velocity = cameraDirection.multiplyScalar(power);
+        
+        const newPlanet = createPlanet(nextPlanetType, startPosition);
+        newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
+        newPlanet.body.linearDamping = 0; // 감쇠 없음 (박재현)
+        newPlanet.body.angularDamping = 0; // 회전 감쇠 없음 (박재현)
+        newPlanet.body.allowSleep = false; // 수면 상태 비활성화 (박재현)
+    } else {
+        // 일반 드래그 발사
+        const startPosition = aimingPlanet.position.clone();
+        const velocity = direction.clone().multiplyScalar(power);
+        const newPlanet = createPlanet(nextPlanetType, startPosition);
+        newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
     }
-    
-    const velocity = worldDirection.clone().multiplyScalar(power);
-    
-    console.log(`행성 발사! 카메라 각도: ${(cameraAngle * 180 / Math.PI).toFixed(1)}°`);
-    console.log(`카메라 위치: (${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)})`);
-    console.log(`발사 위치: (${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)}, ${startPosition.z.toFixed(1)})`);
-    console.log(`발사 방향: (${worldDirection.x.toFixed(2)}, ${worldDirection.y.toFixed(2)}, ${worldDirection.z.toFixed(2)})`);
-    
-    const newPlanet = createPlanet(nextPlanetType, startPosition);
-    newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
     
     // 다음 행성 설정
     setNextPlanet();
     updateAimingPlanet();
     
-    // 궤적 라인 숨기기
-    trajectoryLine.visible = false;
-    
-    // 발사 완료 후 상태 초기화 (약간의 지연 후)
+    // 발사 상태 초기화 (500ms 후)
     setTimeout(() => {
         isLaunching = false;
     }, 500);
