@@ -375,7 +375,7 @@ function updateTrajectory(startPos, velocity) {
 function launchPlanet(direction, power) {
     if (!gameRunning) return;
     
-    // 실제 파워를 절반으로 줄임 (박재현현
+    // 실제 파워를 절반으로 줄임 (박재현)
     const actualPower = power * 0.5;
     
     // 카메라 기준 좌표계 설정
@@ -566,20 +566,18 @@ function setupEventListeners() {
             // 드래그 벡터 계산
             const dragVector = new THREE.Vector2().subVectors(dragEnd, dragStart);
             
-            // 화면 크기에 맞게 정규화 (화면의 절반만 드래그해도 100%가 되도록)
-            const normalizedX = Math.abs(dragVector.x) / (window.innerWidth / 4); // 화면 너비의 1/4만 드래그해도 100%
-            const normalizedY = Math.abs(dragVector.y) / (window.innerHeight / 4); // 화면 높이의 1/4만 드래그해도 100%
+            // 화면 크기에 맞게 정규화 (화면의 절반만 드래그해도 100%가 되도록) (박재현)
+            const maxDragDistance = Math.min(window.innerWidth, window.innerHeight) / 4; // 화면 크기의 1/4을 최대 거리로
+            const dragDistance = Math.sqrt(dragVector.x * dragVector.x + dragVector.y * dragVector.y);
+            const normalizedDistance = Math.min(dragDistance / maxDragDistance, 1);
             
-            // 대각선 방향도 고려하여 정규화된 거리 계산
-            const normalizedDistance = Math.min(Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY), 1);
-            
-            // 정규화된 거리를 파워로 변환 (최대 파워의 절반으로 제한)
+            // 정규화된 거리를 파워로 변환 (박재현)
             const rawPower = normalizedDistance * GAME_CONFIG.maxPower;
             launchPower = Math.min(rawPower, GAME_CONFIG.maxPower);
             
-            // 디버깅: 파워 계산 로그
+            // 디버깅: 파워 계산 로그 (박재현)
             if (Math.floor(Date.now() / 500) % 2 === 0) { // 0.5초마다 로그 출력 (너무 많은 로그 방지)
-                console.log(`🎯 발사 파워: 정규화거리=${normalizedDistance.toFixed(2)}, 파워=${launchPower.toFixed(1)} (최대: ${GAME_CONFIG.maxPower})`);
+                console.log(`🎯 발사 파워: 드래그거리=${dragDistance.toFixed(1)}, 정규화거리=${normalizedDistance.toFixed(2)}, 파워=${launchPower.toFixed(1)} (최대: ${GAME_CONFIG.maxPower})`);
             }
             
             // 발사 방향 계산 (드래그 반대 방향)
