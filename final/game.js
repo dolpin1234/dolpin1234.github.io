@@ -390,11 +390,11 @@ function launchPlanet(direction, power) {
     }
     
     const velocity = worldDirection.clone().multiplyScalar(power);
-    
-    console.log(`행성 발사! 카메라 각도: ${(cameraAngle * 180 / Math.PI).toFixed(1)}°`);
-    console.log(`카메라 위치: (${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)})`);
-    console.log(`발사 위치: (${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)}, ${startPosition.z.toFixed(1)})`);
-    console.log(`발사 방향: (${worldDirection.x.toFixed(2)}, ${worldDirection.y.toFixed(2)}, ${worldDirection.z.toFixed(2)})`);
+    //(제거 예정)
+    //console.log(`행성 발사! 카메라 각도: ${(cameraAngle * 180 / Math.PI).toFixed(1)}°`);
+    //console.log(`카메라 위치: (${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)})`);
+    //console.log(`발사 위치: (${startPosition.x.toFixed(1)}, ${startPosition.y.toFixed(1)}, ${startPosition.z.toFixed(1)})`);
+    //console.log(`발사 방향: (${worldDirection.x.toFixed(2)}, ${worldDirection.y.toFixed(2)}, ${worldDirection.z.toFixed(2)})`);
     
     const newPlanet = createPlanet(nextPlanetType, startPosition);
     newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
@@ -509,8 +509,28 @@ function setNextPlanet() {
 function updatePlanetPreview() {
     const preview = document.getElementById('planetPreview');
     const planetData = PLANET_TYPES[nextPlanetType];
-    preview.style.backgroundColor = `#${planetData.color.toString(16).padStart(6, '0')}`;
-    preview.title = planetData.name;
+    
+    // 기존 내용 제거
+    preview.innerHTML = '';
+    
+    // 원형 배경 생성
+    const circle = document.createElement('div');
+    circle.style.width = '100%';
+    circle.style.height = '100%';
+    circle.style.borderRadius = '50%';
+    circle.style.overflow = 'hidden';
+    circle.style.backgroundColor = `#${planetData.color.toString(16).padStart(6, '0')}`;
+    circle.title = planetData.name;
+    
+    // 행성 이미지 추가
+    const img = document.createElement('img');
+    img.src = `textures/${planetData.texture}`;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'cover';
+    
+    circle.appendChild(img);
+    preview.appendChild(circle);
 }
 
 // 이벤트 리스너 설정 (드래그 시스템)
@@ -1413,7 +1433,9 @@ function stabilisePlanets() {
 }
 
 // 게임 시작 (라이브러리 로딩 확인 후)
-window.addEventListener('load', () => {
-    console.log('페이지 로드 완료. 라이브러리 확인 시작...');
-    setTimeout(checkLibrariesAndInit, 100); // 약간의 지연 후 확인
-}); 
+//window.addEventListener('load', () => {
+    //console.log('페이지 로드 완료. 라이브러리 확인 시작...');
+    //setTimeout(checkLibrariesAndInit, 100); // 약간의 지연 후 확인
+//}); 
+
+// -> 게임 시작은, 스타트 버튼 1번만 누르고 되어야 함.
