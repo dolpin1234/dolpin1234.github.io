@@ -749,16 +749,7 @@ function setupEventListeners() {
     // 키보드 이벤트 (부드러운 카메라 움직임)
     window.addEventListener('keydown', (event) => {
         if (event.key === ' ') { // 스페이스바로 직진 발사
-            // 카메라 방향을 기준으로 발사 방향 설정
-            const cameraDirection = new THREE.Vector3(
-                Math.sin(cameraAngle),
-                0,
-                Math.cos(cameraAngle)
-            ).normalize();
-            
-            // 카메라가 바라보는 방향으로 발사
-            const direction = cameraDirection;
-            launchPlanet(direction, 8);
+            launchStraightPlanet();
         }
         
         // 키 눌림 상태 추가
@@ -1467,6 +1458,43 @@ function stabilisePlanets() {
             planet.body.force.set(0, 0, 0);   // 잔여 힘 제거 (박재현   )
         }
     });
+}
+
+// 스페이스바 발사용 함수 추가
+function launchStraightPlanet() {
+    if (!gameRunning || isLaunching) return;
+    
+    isLaunching = true;
+    
+    // 카메라가 바라보는 방향으로 발사 방향 설정 (수정)
+    const cameraDirection = new THREE.Vector3(
+        -Math.sin(cameraAngle),  // 부호 반전
+        0,
+        -Math.cos(cameraAngle)   // 부호 반전
+    ).normalize();
+    
+    // 카메라 기준 고정 발사 위치
+    const launchOffset = new THREE.Vector3()
+        .addScaledVector(cameraDirection, -3)
+        .addScaledVector(new THREE.Vector3(0, 1, 0), -2);
+    
+    const startPosition = camera.position.clone().add(launchOffset);
+    
+    // 새로운 행성 생성
+    const newPlanet = createPlanet(nextPlanetType, startPosition);
+    
+    // 직선 속도 설정 (중력의 영향을 받지 않도록 충분히 빠른 속도로)
+    const straightVelocity = cameraDirection.clone().multiplyScalar(15);
+    newPlanet.body.velocity.copy(new CANNON.Vec3(straightVelocity.x, straightVelocity.y, straightVelocity.z));
+    
+    // 다음 행성 설정
+    setNextPlanet();
+    updateAimingPlanet();
+    
+    // 발사 완료 후 상태 초기화
+    setTimeout(() => {
+        isLaunching = false;
+    }, 500);
 }
 
 // 게임 시작 (라이브러리 로딩 확인 후)
