@@ -8,7 +8,7 @@
 const GAME_CONFIG = {
     gravity: 35,      // 중력 세기
     maxPower: 6,      // 최대 발사 파워
-    areaSize: 6,      // 중력장 크기
+    areaSize: 5,      // 중력장 크기
     trajectorySteps: 120  // 궤적 계산 점의 개수
 };
 
@@ -85,6 +85,33 @@ const SNAP_SPEED        = 0.03;   // |v| < SNAP_SPEED 이면 즉시 0으로 스�
 const MAX_SPEED_SLEEP   = 8.0;    // 기존 maxSpeed 그대로 쓰도록 상수화
 const SLEEP_SPEED = 0.05; // |v| < 0.05 m/s 이면 강제 sleep
 
+// 배경음악 변수 추가 (박재현)
+let backgroundMusic;
+
+// 배경음악 초기화 함수 (박재현)
+function initBackgroundMusic() {
+    backgroundMusic = new Audio('sound/First_Step.mp3');
+    backgroundMusic.loop = true; // 반복 재생
+    backgroundMusic.volume = 1; // 볼륨 설정 (0.0 ~ 1.0) (박재현)
+}
+
+// 배경음악 시작 (박재현)
+function startBackgroundMusic() {
+    if (backgroundMusic) {
+        backgroundMusic.play().catch(error => {
+            console.log('배경음악 재생 실패:', error);
+        });
+    }
+}
+
+// 배경음악 정지 (박재현)
+function stopBackgroundMusic() {
+    if (backgroundMusic) {
+        backgroundMusic.pause();
+        backgroundMusic.currentTime = 0;
+    }
+}
+
 // 라이브러리 로딩 확인 및 초기화
 function checkLibrariesAndInit() {
     console.log('라이브러리 확인 중...');
@@ -103,12 +130,16 @@ function checkLibrariesAndInit() {
     
     console.log('모든 라이브러리 로드 완료. 게임 초기화 시작...');
     init();
+    startBackgroundMusic(); // 게임 시작 시 배경음악 시작 (박재현)
 }
 
 // 초기화
 function init() {
     try {
         console.log('게임 초기화 시작...');
+        
+        // 배경음악 초기화 (박재현)
+        initBackgroundMusic();
         
         // Three.js 설정
         scene = new THREE.Scene();
@@ -1234,14 +1265,17 @@ function checkGameOver() {
 // 게임 오버
 function gameOver() {
     gameRunning = false;
+    stopBackgroundMusic(); // 배경음악 정지 (박재현)
     
     if (score > bestScore) {
         bestScore = score;
         localStorage.setItem('sputnika3d-best', bestScore);
     }
     
-    document.getElementById('finalScore').textContent = score;
-    document.getElementById('gameOver').style.display = 'block';
+    const gameOverScreen = document.getElementById('gameOver');
+    const finalScore = document.getElementById('finalScore');
+    finalScore.textContent = score;
+    gameOverScreen.style.display = 'block';
 }
 
 // 게임 재시작
@@ -1286,6 +1320,9 @@ function restartGame() {
     console.log(`🎮 게임 재시작 완료: 새 행성 수 ${planets.length}`);
     
     document.getElementById('gameOver').style.display = 'none';
+    
+    // 배경음악 재시작 (박재현)
+    startBackgroundMusic();
 }
 
 // UI 업데이트
