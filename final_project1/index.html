@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>행성팡팡!</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: white;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            cursor: crosshair;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: none; /* 초기에는 숨김 */
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #00ffff;
+        }
+        
+        #nextPlanet {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #00ffff;
+            text-align: center;
+        }
+        
+        #planetPreview {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin: 10px auto;
+            border: 2px solid white;
+        }
+        
+        #powerMeter {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #00ffff;
+            text-align: center;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 15px;
+            border: 3px solid #ff0000;
+            text-align: center;
+            display: none;
+        }
+        
+        button {
+            background: #00ffff;
+            color: black;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        
+        button:hover {
+            background: #00cccc;
+        }
+        
+        .power-bar {
+            width: 200px;
+            height: 20px;
+            background: #333;
+            border: 2px solid #fff;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px auto;
+        }
+        
+        .power-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff00, #ffff00, #ff0000);
+            width: 0%;
+            transition: width 0.1s;
+        }
+        
+        .crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 150;
+            color: #ff0000;
+            font-size: 24px;
+            pointer-events: none;
+            text-shadow: 0 0 10px #ff0000;
+        }
+        
+        .trajectory-info {
+            position: absolute;
+            top: 50%;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #00ff00;
+            display: none;
+        }
+        
+        /* 인트로 화면 스타일 추가 */
+        #introScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        
+        #gameTitle {
+            font-size: 48px;
+            margin-bottom: 30px;
+            display: none;
+        }
+        
+        #subtitle {
+            font-size: 24px;
+            text-align: center;
+            margin-bottom: 30px;
+            min-height: 200px;
+        }
+        
+        #startButton {
+            display: none;
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #00ffff;
+            color: black;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        #startButton:hover {
+            background: #00cccc;
+        }
+        
+        #moonCanvasContainer {
+            width: 200px;
+            height: 200px;
+            margin: 20px 0;
+        }
+        
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 인트로 화면 추가 -->
+    <div id="introScreen">
+        <h1 id="gameTitle">행성팡팡!</h1>
+        <div id="subtitle"></div>
+        <div id="moonCanvasContainer"></div>
+        <button id="startButton" onclick="startGame()">게임 시작</button>
+    </div>
+
+    <div id="gameContainer">
+        <!-- 십자선 -->
+        <div class="crosshair">⊕</div>
+        
+        <!-- 게임 정보 UI -->
+        <div id="ui">
+            <h3>🚀 행성팡팡!</h3>
+            <div>점수: <span id="score">0</span></div>
+            <div>최고점수: <span id="bestScore">0</span></div>
+        </div>
+        
+        <!-- 다음 행성 미리보기 -->
+        <div id="nextPlanet">
+            <h4>다음 행성</h4>
+            <div id="planetPreview"></div>
+        </div>
+        
+        <!-- 발사 파워 미터 -->
+        <div id="powerMeter">
+            <h4>발사 파워</h4>
+            <div class="power-bar">
+                <div class="power-fill" id="powerFill"></div>
+            </div>
+            <div id="powerValue">0%</div>
+        </div>
+        
+        <!-- 궤적 정보 -->
+        <div id="trajectoryInfo" class="trajectory-info">
+            <div>🎯 조준 중...</div>
+            <div>드래그하여 발사!</div>
+        </div>
+        
+        <!-- 게임 오버 화면 -->
+        <div id="gameOver">
+            <h2>🌌 게임 오버!</h2>
+            <p>최종 점수: <span id="finalScore">0</span></p>
+            <button onclick="restartGame()">🚀 다시 시작</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+    <script src="intro.js"></script>
+    <script src="game.js"></script>
+    
+    <script>
+        // 파워 미터 업데이트
+        function updatePowerMeter(power) {
+            const powerFill = document.getElementById('powerFill');
+            const powerValue = document.getElementById('powerValue');
+            
+            // 게임에서 최대 파워 설정을 가져오기
+            const maxPower = window.GAME_CONFIG ? window.GAME_CONFIG.maxPower : 6;
+            const percentage = Math.min((power / maxPower) * 100, 100);
+            
+            powerFill.style.width = percentage + '%';
+            powerValue.textContent = Math.round(percentage) + '%';
+        }
+        
+        // 궤적 정보 표시/숨기기
+        function showTrajectoryInfo(show) {
+            const trajectoryInfo = document.getElementById('trajectoryInfo');
+            trajectoryInfo.style.display = show ? 'block' : 'none';
+        }
+        
+        // 드래그 상태에 따른 UI 업데이트
+        document.addEventListener('mousedown', () => {
+            showTrajectoryInfo(true);
+        });
+        
+        document.addEventListener('mouseup', () => {
+            showTrajectoryInfo(false);
+            updatePowerMeter(0);
+        });
+        
+        // 전역 함수로 파워 미터 업데이트 함수 노출
+        window.updatePowerMeter = updatePowerMeter;
+        window.showTrajectoryInfo = showTrajectoryInfo;
+    </script>
+</body>
+</html>
