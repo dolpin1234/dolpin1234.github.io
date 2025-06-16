@@ -90,9 +90,23 @@ function animateMoon() {
 
 function startGame() {
     const intro = document.getElementById('introScreen');
+    const gameContainer = document.getElementById('gameContainer');
+    
+    // 게임 컨테이너를 먼저 표시
+    gameContainer.style.display = 'block';
+    
+    // 인트로 화면 페이드 아웃
     intro.style.animation = "fadeOut 1s forwards";
+    
     setTimeout(() => {
+        // 인트로 화면 숨기기
         intro.style.display = 'none';
-        window.startGame();
+        
+        // 게임 초기화
+        if (typeof checkLibrariesAndInit === 'function') {
+            checkLibrariesAndInit();
+        } else {
+            console.error('게임 초기화 함수를 찾을 수 없습니다.');
+        }
     }, 1000);
 }
