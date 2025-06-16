@@ -1,54 +1,25 @@
 // 업데이트 사항 (박재현)
 // 1. 초반에 행성 3개 소환 후 화성을 만드는데, 이는 그냥 행성 1개를 만드는 것과 동일하여 createTestPlanet 함수 수정
 // 2. 행성이 중력장 내에 위치하고 충분한 시간이 지나도 떨림 현상 발생. 이를 방지하기 위해 추가 코드 작성.
-// 3. 발사 파워에서 게이지가 제대로 표시 안된점 수정, 최대 100% 까지 표시는되는데, 실제론 50%임 (50%를 100%로 표시되게.)
+// 3. 발사 파워에서 게이지가 제대로 표시 안된점 수정, 최대 100% 까지 표시는되는데, 실제론 80%임 (80%를 100%로 표시되게.)
 // 4. 발사시 딜레이 추가. 1초.
 
-// 게임 설정 상수들 (UI에서 제어 가능)
+// 게임 설정 상수들 (고정값) (박재현)
 const GAME_CONFIG = {
-    gravity: 23.5,     // 중력 세기
-    maxPower: 15,      // 최대 발사 파워
-    areaSize: 6,       // 중력장 크기
-    trajectorySteps: 120  // 궤적 계산 점의 개수
+    gravity: 35,        // 중력 세기 (고정)
+    maxPower: 6,        // 최대 발사 파워 (고정)
+    areaSize: 5,        // 중력장 크기 (고정)
+    trajectorySteps: 120,  // 궤적 계산 점의 개수 (고정)
+    powerLimit: 0.7     // 발사 파워 제한 (70%) (박재현)
 };
 
-// 게임 설정 업데이트 함수
-function updateGameConfig(setting, value) {
-    const oldValue = GAME_CONFIG[setting];
-    GAME_CONFIG[setting] = value;
-    console.log(`🔧 게임 설정 업데이트: ${setting} = ${oldValue} → ${value}`);
-    
-    // 중력장 크기가 변경된 경우 게임 영역 업데이트
-    if (setting === 'areaSize' && gameArea) {
-        // 기존 게임 영역 제거
-        scene.remove(gameArea);
-        
-        // 새로운 게임 영역 생성
-        GAME_AREA.radius = value;
-        GAME_AREA.height = value * 2;
-        createGameArea();
-        console.log(`🌍 중력장 크기 업데이트 완료: 반지름 ${value}`);
-    }
-    
-    // 최대 파워가 변경된 경우 추가 로그
-    if (setting === 'maxPower') {
-        console.log(`⚡ 최대 발사 파워 업데이트 완료: ${value}`);
-    }
-    
-    // 중력이 변경된 경우 추가 로그
-    if (setting === 'gravity') {
-        console.log(`🌌 중력 강도 업데이트 완료: ${value}`);
-    }
-    
-    // 궤적 점 개수가 변경된 경우 추가 로그
-    if (setting === 'trajectorySteps') {
-        console.log(`📈 궤적 점 개수 업데이트 완료: ${value}`);
-    }
-}
+const textureLoader = new THREE.TextureLoader();
 
-// 전역 함수로 노출
-window.updateGameConfig = updateGameConfig;
-window.GAME_CONFIG = GAME_CONFIG;
+// 떨림 억제용 추가 상수 (박재현)
+const DEAD_ZONE = 0.10;   // 중앙 r < DEAD_ZONE 구간엔 중력 없음
+const SNAP_SPEED = 0.03;   // |v| < SNAP_SPEED 이면 즉시 0으로 스냅
+const MAX_SPEED_SLEEP = 8.0;    // 기존 maxSpeed 그대로 쓰도록 상수화
+const SLEEP_SPEED = 0.05; // |v| < 0.05 m/s 이면 강제 sleep
 
 // 게임 변수들
 let scene, camera, renderer, world;
@@ -61,6 +32,7 @@ let nextPlanetType = 0;
 let dropLine;
 let mouse = new THREE.Vector2();
 let raycaster = new THREE.Raycaster();
+let lastLaunchTime = 0; // 마지막 발사 시간 추적
 
 // 발사 시스템 변수들
 let isDragging = false;
@@ -68,10 +40,8 @@ let dragStart = new THREE.Vector2();
 let dragEnd = new THREE.Vector2();
 let launchPower = 0;
 let trajectoryLine;
-let aimingPlanet; // 조준용 행성
+let aimingPlanet; // 조준 중인 행성
 let crosshair; // 십자선
-let isLaunching = false; // 발사 중복 방지를 위한 상태 변수 추가
-let canDrag = true; // 드래그 가능 여부를 나타내는 변수 추가 (박재현)
 
 // 카메라 공전 시스템 변수들
 let cameraAngle = 0; // Y축 기준 회전 각도 (라디안)
@@ -96,16 +66,16 @@ const pressedKeys = new Set();
 
 // 행성 정의 (크기 순서대로)
 const PLANET_TYPES = [
-    { name: '달', color: 0xC0C0C0, size: 0.3, points: 1 },
-    { name: '수성', color: 0x8C7853, size: 0.4, points: 2 },
-    { name: '금성', color: 0xFFC649, size: 0.5, points: 4 },
-    { name: '지구', color: 0x6B93D6, size: 0.6, points: 8 },
-    { name: '화성', color: 0xCD5C5C, size: 0.7, points: 16 },
-    { name: '목성', color: 0xD8CA9D, size: 1.0, points: 32 },
-    { name: '토성', color: 0xFAD5A5, size: 1.2, points: 64 },
-    { name: '천왕성', color: 0x4FD0E7, size: 1.0, points: 128 },
-    { name: '해왕성', color: 0x4B70DD, size: 1.0, points: 256 },
-    { name: '태양', color: 0xFFD700, size: 1.5, points: 512 }
+    { name: '달', size: 0.3, points: 1, texture: 'textures/moon.png' },
+    { name: '수성', size: 0.4, points: 2, texture: 'textures/mercury.png' },
+    { name: '금성', size: 0.5, points: 4, texture: 'textures/venus.png' },
+    { name: '지구', size: 0.6, points: 8, texture: 'textures/earth.png' },
+    { name: '화성', size: 0.7, points: 16, texture: 'textures/mars.png' },
+    { name: '목성', size: 1.0, points: 32, texture: 'textures/jupiter.png' },
+    { name: '토성', size: 1.2, points: 64, texture: 'textures/saturn.png' },
+    { name: '천왕성', size: 1.0, points: 128, texture: 'textures/uranus.png' },
+    { name: '해왕성', size: 1.0, points: 256, texture: 'textures/neptune.png' },
+    { name: '태양', size: 1.5, points: 512, texture: 'textures/sun.png' }
 ];
 
 // 게임 영역 설정
@@ -113,12 +83,6 @@ const GAME_AREA = {
     radius: GAME_CONFIG.areaSize, // 구체 반지름을 설정에서 가져오기
     height: GAME_CONFIG.areaSize * 2  // 높이도 설정에서 가져오기
 };
-
-/* 떨림 억제용 추가 상수  (박재현) */
-const DEAD_ZONE         = 0.15;   // 중앙 r < DEAD_ZONE 구간엔 중력 없음
-const SNAP_SPEED        = 0.03;   // |v| < SNAP_SPEED 이면 즉시 0으로 스냅
-const MAX_SPEED_SLEEP   = 8.0;    // 기존 maxSpeed 그대로 쓰도록 상수화
-const SLEEP_SPEED = 0.05; // |v| < 0.05 m/s 이면 강제 sleep
 
 // 라이브러리 로딩 확인 및 초기화
 function checkLibrariesAndInit() {
@@ -263,8 +227,9 @@ function createAimingPlanet() {
     const planetData = PLANET_TYPES[nextPlanetType];
     
     const geometry = new THREE.SphereGeometry(planetData.size, 16, 16);
-    const material = new THREE.MeshPhongMaterial({ 
-        color: planetData.color,
+    const texture = textureLoader.load(planetData.texture);
+    const material = new THREE.MeshPhongMaterial({
+        map: texture,
         transparent: true,
         opacity: 0.8
     });
@@ -372,45 +337,61 @@ function updateTrajectory(startPos, velocity) {
     console.log(`궤적 총 길이: ${trajectoryLength.toFixed(2)} units`);
 }
 
-// 발사 함수 (박재현: 스페이스바 발사 시 현재 위치에서 바로 발사)
+// 행성 발사 (카메라 기준 고정 위치에서 발사) (박재현)
 function launchPlanet(direction, power) {
-    if (isLaunching) return; // 이미 발사 중이면 무시
-    isLaunching = true;
+    if (!gameRunning) return;
     
-    // 스페이스바 발사인 경우 (박재현: 현재 위치에서 바로 발사)
-    if (direction.z === -1) {
-        // 카메라가 바라보는 방향 계산
-        const cameraDirection = new THREE.Vector3(
-            Math.sin(cameraAngle),
-            0,
-            Math.cos(cameraAngle)
-        ).normalize();
-        
-        // 현재 조준 행성의 위치에서 바로 발사
-        const startPosition = aimingPlanet.position.clone();
-        const velocity = cameraDirection.multiplyScalar(power);
-        
-        const newPlanet = createPlanet(nextPlanetType, startPosition);
-        newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
-        newPlanet.body.linearDamping = 0; // 감쇠 없음 (박재현)
-        newPlanet.body.angularDamping = 0; // 회전 감쇠 없음 (박재현)
-        newPlanet.body.allowSleep = false; // 수면 상태 비활성화 (박재현)
-    } else {
-        // 일반 드래그 발사
-        const startPosition = aimingPlanet.position.clone();
-        const velocity = direction.clone().multiplyScalar(power);
-        const newPlanet = createPlanet(nextPlanetType, startPosition);
-        newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
+    // 발사 쿨다운 체크 (1초)
+    const currentTime = Date.now();
+    if (currentTime - lastLaunchTime < 1000) {
+        console.log('발사 쿨다운 중...');
+        return;
     }
+    lastLaunchTime = currentTime;
+    
+    // 카메라 기준 좌표계 설정
+    const cameraDirection = new THREE.Vector3(
+        Math.sin(cameraAngle),
+        0,
+        Math.cos(cameraAngle)
+    ).normalize();
+    
+    const rightVector = new THREE.Vector3().crossVectors(cameraDirection, new THREE.Vector3(0, 1, 0)).normalize();
+    const upVector = new THREE.Vector3(0, 1, 0);
+    
+    // 카메라 기준 고정 발사 위치 (화면 하단 중앙에서 약간 앞쪽)
+    const launchOffset = new THREE.Vector3()
+        .addScaledVector(cameraDirection, -3) // 카메라에서 3만큼 앞쪽
+        .addScaledVector(upVector, -2); // 아래쪽 2만큼
+    
+    const startPosition = camera.position.clone().add(launchOffset);
+    
+    // 마우스 드래그 방향을 월드 좌표계로 변환
+    const worldDirection = new THREE.Vector3()
+        .addScaledVector(rightVector, -direction.x) // 좌우 방향
+        .addScaledVector(upVector, direction.y)     // 상하 방향
+        .addScaledVector(cameraDirection, -direction.z) // 전후 방향 (카메라 쪽으로)
+        .normalize();
+    
+    // 카메라 쪽으로 날아가는 것을 방지 (z 성분을 양수로 제한)
+    const cameraDot = worldDirection.dot(cameraDirection);
+    if (cameraDot > 0) {
+        // 카메라 방향 성분을 제거하고 재정규화
+        worldDirection.addScaledVector(cameraDirection, -cameraDot);
+        worldDirection.normalize();
+    }
+    
+    const velocity = worldDirection.clone().multiplyScalar(power);
+    
+    const newPlanet = createPlanet(nextPlanetType, startPosition);
+    newPlanet.body.velocity.copy(new CANNON.Vec3(velocity.x, velocity.y, velocity.z));
     
     // 다음 행성 설정
     setNextPlanet();
     updateAimingPlanet();
     
-    // 발사 상태 초기화 (500ms 후)
-    setTimeout(() => {
-        isLaunching = false;
-    }, 500);
+    // 궤적 라인 숨기기
+    trajectoryLine.visible = false;
 }
 
 // 조준용 행성 업데이트
@@ -421,11 +402,10 @@ function updateAimingPlanet() {
     createAimingPlanet();
 }
 
-// 테스트용 초기 행성들 생성 (게임 영역 내부에)
+// 테스트용 초기 행성들 생성 (게임 영역 내부에) (박재현)
 function createTestPlanets() {
-    // 중앙에 몇 개의 행성을 미리 배치해서 게임이 제대로 작동하는지 확인
-    // 이러면 처음에 행성 3개가 생성되고 합쳐지는건데, 그냥 1개로 합침. (박재현)
-    createPlanet(4, new THREE.Vector3(0, -1, 0)); // 화성 ( 박재현)
+    // 중앙에 화성 하나만 배치
+    createPlanet(4, new THREE.Vector3(0, 0, 0)); // 화성
 }
 
 // 게임 영역 생성 (더 명확한 구체)
@@ -456,10 +436,10 @@ function createGameArea() {
 
 // 조명 설정 (더 밝게)
 function setupLights() {
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.8);
+    const ambientLight = new THREE.AmbientLight(0x404040, 1.0); // 환경광 강도 증가
     scene.add(ambientLight);
     
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5); // 직사광 강도 증가
     directionalLight.position.set(10, 10, 5);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 2048;
@@ -472,12 +452,12 @@ function setupLights() {
     directionalLight.shadow.camera.bottom = -10;
     scene.add(directionalLight);
     
-    const pointLight = new THREE.PointLight(0xffffff, 0.8);
+    const pointLight = new THREE.PointLight(0xffffff, 1.0); // 포인트 라이트 강도 증가
     pointLight.position.set(0, 8, 0);
     scene.add(pointLight);
     
     // 추가 조명
-    const pointLight2 = new THREE.PointLight(0xffffff, 0.5);
+    const pointLight2 = new THREE.PointLight(0xffffff, 0.8); // 두 번째 포인트 라이트 강도 증가
     pointLight2.position.set(-5, 5, 5);
     scene.add(pointLight2);
 }
@@ -510,15 +490,16 @@ function setNextPlanet() {
 function updatePlanetPreview() {
     const preview = document.getElementById('planetPreview');
     const planetData = PLANET_TYPES[nextPlanetType];
-    preview.style.backgroundColor = `#${planetData.color.toString(16).padStart(6, '0')}`;
+    preview.style.backgroundImage = `url(${planetData.texture})`;
+    preview.style.backgroundSize = 'cover';
     preview.title = planetData.name;
 }
 
-// 이벤트 리스너 설정 (드래그 시스템)
+// 이벤트 리스너 설정 (드래그 시스템) (박재현)
 function setupEventListeners() {
     // 마우스 다운 (드래그 시작)
     renderer.domElement.addEventListener('mousedown', (event) => {
-        if (!gameRunning || !canDrag) return;
+        if (!gameRunning) return;
         
         isDragging = true;
         dragStart.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -541,21 +522,19 @@ function setupEventListeners() {
             dragEnd.x = mouse.x;
             dragEnd.y = mouse.y;
             
-            // 드래그 벡터 계산
-            const dragVector = new THREE.Vector2().subVectors(dragEnd, dragStart);
+            // 드래그 벡터 계산 (2배 증폭) (박재현)
+            const rawDragVector = new THREE.Vector2().subVectors(dragEnd, dragStart);
+            const dragVector = rawDragVector.multiplyScalar(2); // 드래그 거리를 2배로 증폭
             const rawPower = dragVector.length() * 10;
+            // 실제 파워는 50%로 제한
+            launchPower = Math.min(rawPower, GAME_CONFIG.maxPower) * GAME_CONFIG.powerLimit;
             
-            // 파워 계산 로직 수정 (박재현)
-            // 실제 파워는 최대 파워의 50%까지만 사용
-            const maxDragPower = GAME_CONFIG.maxPower * 0.5;
-            const actualPower = Math.min(rawPower, maxDragPower);
-            
-            // 파워 게이지 표시는 100% 스케일로 보여줌 (박재현)
-            launchPower = actualPower * 2;
+            // UI 표시용 파워는 100% 기준으로 변환
+            const displayPower = launchPower * 2;
             
             // 디버깅: 파워 계산 로그
             if (Math.floor(Date.now() / 500) % 2 === 0) { // 0.5초마다 로그 출력 (너무 많은 로그 방지)
-                console.log(`🎯 발사 파워: 원시값 ${rawPower.toFixed(1)} → 실제값 ${actualPower.toFixed(1)} → 표시값 ${launchPower.toFixed(1)} (최대: ${GAME_CONFIG.maxPower})`);
+                console.log(`🎯 발사 파워: 원시값 ${rawPower.toFixed(1)} → 제한값 ${launchPower.toFixed(1)} (최대: ${GAME_CONFIG.maxPower * GAME_CONFIG.powerLimit})`);
             }
             
             // 발사 방향 계산 (드래그 반대 방향)
@@ -604,12 +583,8 @@ function setupEventListeners() {
             if (trajectoryLine) {
                 trajectoryLine.visible = true;
                 
-                // 디버깅: 궤적 라인과 카메라 거리 확인
-                const cameraToTrajectory = startPos.distanceTo(camera.position);
-                console.log(`📏 카메라-궤적 거리: ${cameraToTrajectory.toFixed(2)}, 카메라 near/far: ${camera.near}/${camera.far}`);
-                
-                // 파워에 따른 색상 변화를 더 명확하게
-                const powerRatio = launchPower / GAME_CONFIG.maxPower;
+                // 파워에 따른 색상 변화를 더 명확하게 (UI 표시 파워 기준)
+                const powerRatio = displayPower / GAME_CONFIG.maxPower;
                 if (powerRatio < 0.3) {
                     trajectoryLine.material.color.setHex(0x00ff00); // 약한 파워: 녹색
                 } else if (powerRatio < 0.7) {
@@ -618,20 +593,20 @@ function setupEventListeners() {
                     trajectoryLine.material.color.setHex(0xff0088); // 강한 파워: 핑크색
                 }
                 
-                console.log(`궤적 표시: 파워 ${launchPower.toFixed(1)}, 색상 변경됨, 카메라높이 ${camera.position.y.toFixed(1)}`);
+                console.log(`궤적 표시: 파워 ${launchPower.toFixed(1)}, UI 표시 파워 ${displayPower.toFixed(1)}, 색상 변경됨`);
             }
             
             // 조준용 행성 위치 업데이트 (발사 지점에 표시)
             if (aimingPlanet) {
                 aimingPlanet.position.copy(startPos);
-                // 파워에 따라 행성 크기도 살짝 조절
-                const sizeScale = 1 + (launchPower / GAME_CONFIG.maxPower) * 0.3;
+                // 파워에 따라 행성 크기도 살짝 조절 (UI 표시 파워 기준)
+                const sizeScale = 1 + (displayPower / GAME_CONFIG.maxPower) * 0.3;
                 aimingPlanet.scale.setScalar(sizeScale);
             }
             
-            // 파워 미터 UI 업데이트
+            // 파워 미터 UI 업데이트 (UI 표시 파워 사용)
             if (window.updatePowerMeter) {
-                window.updatePowerMeter(launchPower);
+                window.updatePowerMeter(displayPower);
             }
         }
     });
@@ -646,68 +621,48 @@ function setupEventListeners() {
             const dragVector = new THREE.Vector2().subVectors(dragEnd, dragStart);
             const direction = new THREE.Vector3(-dragVector.x, -dragVector.y, -1).normalize();
             
-            // 실제 발사 파워는 표시된 파워의 절반으로 설정 (박재현)
-            const actualLaunchPower = launchPower * 0.5;
-            
-            // 드래그 불가능 상태로 설정 (박재현)
-            canDrag = false;
-            
-            // 1초 후 드래그 가능 상태로 복구 (박재현)
-            setTimeout(() => {
-                canDrag = true;
-                console.log('드래그 가능 상태로 복구');
-            }, 1000);
-            
-            launchPlanet(direction, actualLaunchPower);
-            
-            // 조준용 행성을 원래 위치로 되돌리기
-            if (aimingPlanet) {
-                const cameraDirection = new THREE.Vector3(
-                    Math.sin(cameraAngle),
-                    0,
-                    Math.cos(cameraAngle)
-                ).normalize();
-                
-                const upVector = new THREE.Vector3(0, 1, 0);
-                
-                const launchOffset = new THREE.Vector3()
-                    .addScaledVector(cameraDirection, -3) // 카메라에서 3만큼 앞쪽
-                    .addScaledVector(upVector, -2); // 아래쪽 2만큼
-                
-                const aimingPosition = camera.position.clone().add(launchOffset);
-                aimingPlanet.position.copy(aimingPosition);
-                
-                // 크기도 원래대로 되돌리기
-                aimingPlanet.scale.setScalar(1);
-            }
-            
-            // 궤적 라인 숨기기
-            trajectoryLine.visible = false;
-            
-            // UI 업데이트
-            if (window.showTrajectoryInfo) {
-                window.showTrajectoryInfo(false);
-            }
-            if (window.updatePowerMeter) {
-                window.updatePowerMeter(0);
-            }
-            
-            console.log('드래그 종료, 발사!');
+            launchPlanet(direction, launchPower);
         }
-    });
-    
-    // 키보드 이벤트 (부드러운 카메라 움직임)
-    window.addEventListener('keydown', (event) => {
-        if (event.key === ' ') { // 스페이스바로 직진 발사
-            // 카메라 방향을 기준으로 발사 방향 설정
+        
+        // 조준용 행성을 원래 위치로 되돌리기
+        if (aimingPlanet) {
             const cameraDirection = new THREE.Vector3(
                 Math.sin(cameraAngle),
                 0,
                 Math.cos(cameraAngle)
             ).normalize();
             
-            // 카메라가 바라보는 방향으로 발사
-            const direction = cameraDirection;
+            const upVector = new THREE.Vector3(0, 1, 0);
+            
+            const launchOffset = new THREE.Vector3()
+                .addScaledVector(cameraDirection, -3) // 카메라에서 3만큼 앞쪽
+                .addScaledVector(upVector, -2); // 아래쪽 2만큼
+            
+            const aimingPosition = camera.position.clone().add(launchOffset);
+            aimingPlanet.position.copy(aimingPosition);
+            
+            // 크기도 원래대로 되돌리기
+            aimingPlanet.scale.setScalar(1);
+        }
+        
+        // 궤적 라인 숨기기
+        trajectoryLine.visible = false;
+        
+        // UI 업데이트
+        if (window.showTrajectoryInfo) {
+            window.showTrajectoryInfo(false);
+        }
+        if (window.updatePowerMeter) {
+            window.updatePowerMeter(0);
+        }
+        
+        console.log('드래그 종료, 발사!');
+    });
+    
+    // 키보드 이벤트 (부드러운 카메라 움직임)
+    window.addEventListener('keydown', (event) => {
+        if (event.key === ' ') { // 스페이스바로 직진 발사
+            const direction = new THREE.Vector3(0, 0, -1);
             launchPlanet(direction, 8);
         }
         
@@ -735,8 +690,23 @@ function createPlanet(type, position) {
     
     // Three.js 메시
     const geometry = new THREE.SphereGeometry(planetData.size, 32, 32);
-    const material = new THREE.MeshPhongMaterial({ 
-        color: planetData.color,
+    
+    // 텍스처 로드 및 적용
+    const texture = textureLoader.load(planetData.texture, 
+        // 텍스처 로드 성공 시
+        function(texture) {
+            console.log(`텍스처 로드 성공: ${planetData.texture}`);
+        },
+        // 로딩 진행 중
+        undefined,
+        // 로드 실패 시
+        function(error) {
+            console.error(`텍스처 로드 실패: ${planetData.texture}`, error);
+        }
+    );
+    
+    const material = new THREE.MeshPhongMaterial({
+        map: texture,
         shininess: 30
     });
     
@@ -796,18 +766,8 @@ function createPlanet(type, position) {
     body.addShape(shape);
     body.position.copy(position);
     body.material = new CANNON.Material();
-    body.material.restitution = 0.1; // 반발력을 0.4에서 0.1로 크게 감소
+    body.material.restitution = 0.2; // 반발력을 0.1에서 0.2로 증가
     body.material.friction = 0.8; // 마찰력 증가로 안정성 향상
-    
-    /*  떨림 방지 속성 추가 (박재현)  */
-    body.linearDamping   = 0.2;   // 남은 직선 속도 빨리 감쇠
-    body.angularDamping  = 0.2;   // 남은 회전 속도 빨리 감쇠
-    body.allowSleep      = true;  // 느려지면 계산 제외
-    body.sleepSpeedLimit = 0.05;  // |v| < 0.05 m/s 이면
-    body.sleepTimeLimit  = 0.5;   // 0.5초 지속되면 sleep
-    body.linearDamping  = 0.4;   // 0.2 → 0.4   더 빨리 속도 죽임
-    body.angularDamping = 0.4;
-    /* 여기까지.*/
     
     const planet = {
         type: type,
@@ -865,7 +825,7 @@ function createPlanet(type, position) {
     return planet;
 }
 
-// 중앙으로 끌어당기는 중력 적용 (안정화 개선)
+// 중앙으로 끌어당기는 중력 적용 (안정화 개선) (박재현)
 function applyCentralGravity() {
     const gravityStrength = GAME_CONFIG.gravity; // 설정에서 중력 강도 가져오기
     
@@ -874,7 +834,8 @@ function applyCentralGravity() {
         const position = planet.body.position;
         const distance = Math.sqrt(position.x * position.x + position.y * position.y + position.z * position.z);
         
-        if (distance > 0.1) { // 0으로 나누기 방지
+        // DEAD_ZONE 내부에서는 중력 적용하지 않음
+        if (distance > DEAD_ZONE) {
             // 중앙 방향으로의 단위 벡터
             const forceDirection = new CANNON.Vec3(
                 -position.x / distance,
@@ -891,16 +852,27 @@ function applyCentralGravity() {
             planet.body.force.z += forceDirection.z * forceMagnitude;
         }
         
-        // 속도 제한 (너무 빠르게 움직이지 않도록)
+        // 속도 제한 및 스냅 적용
         const velocity = planet.body.velocity;
         const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z);
-        const maxSpeed = 8.0; // 최대 속도 제한
         
-        if (speed > maxSpeed) {
-            const scale = maxSpeed / speed;
+        // SNAP_SPEED보다 작은 속도는 0으로 스냅
+        if (speed < SNAP_SPEED) {
+            velocity.set(0, 0, 0);
+            return;
+        }
+        
+        // MAX_SPEED_SLEEP보다 큰 속도는 제한
+        if (speed > MAX_SPEED_SLEEP) {
+            const scale = MAX_SPEED_SLEEP / speed;
             velocity.x *= scale;
             velocity.y *= scale;
             velocity.z *= scale;
+        }
+        
+        // SLEEP_SPEED보다 작은 속도는 강제 sleep
+        if (speed < SLEEP_SPEED) {
+            planet.body.sleep();
         }
     });
 }
@@ -1262,6 +1234,22 @@ function updateUI() {
     document.getElementById('bestScore').textContent = bestScore;
 }
 
+// 파워 미터 업데이트 함수
+function updatePowerMeter(power) {
+    const powerFill = document.getElementById('powerFill');
+    const powerValue = document.getElementById('powerValue');
+    
+    // 게임에서 최대 파워 설정을 가져오기
+    const maxPower = GAME_CONFIG.maxPower;
+    const percentage = Math.min((power / maxPower) * 100, 100);
+    
+    powerFill.style.width = percentage + '%';
+    powerValue.textContent = Math.round(percentage) + '%';
+}
+
+// 전역 함수로 파워 미터 업데이트 함수 노출
+window.updatePowerMeter = updatePowerMeter;
+
 // 애니메이션 루프
 function animate() {
     requestAnimationFrame(animate);
@@ -1272,7 +1260,6 @@ function animate() {
     // 중앙으로 끌어당기는 중력 적용
     if (gameRunning) {
         applyCentralGravity();
-        stabilisePlanets();   // 떨림 억제 (박재현)
     }
     
     // 물리 시뮬레이션 업데이트
@@ -1378,30 +1365,19 @@ function updateCameraMovement() {
     }
 }
 
-/* 떨림 억제용 보정(박재현) */
-function stabilisePlanets() {
-    planets.forEach(planet => {
-        // 1) Dead-zone : 중심 아주 근처면 힘 제거
-        const pos   = planet.body.position;
-        const dist2 = pos.x*pos.x + pos.y*pos.y + pos.z*pos.z;
-        if (dist2 < DEAD_ZONE * DEAD_ZONE) {           // r < DEAD_ZONE
-            planet.body.force.set(0, 0, 0);
-        }
-
-        // 2) 저속 스냅 : 미세 진동 제거
-        const v       = planet.body.velocity;
-        const speed2  = v.x*v.x + v.y*v.y + v.z*v.z;
-        if (speed2 < SNAP_SPEED * SNAP_SPEED) {        // |v| < SNAP_SPEED
-            v.set(0, 0, 0);
-            planet.body.angularVelocity.set(0, 0, 0);
-            planet.body.sleep();              // 강제 수면 (박재현)
-            planet.body.force.set(0, 0, 0);   // 잔여 힘 제거 (박재현   )
-        }
-    });
-}
-
 // 게임 시작 (라이브러리 로딩 확인 후)
 window.addEventListener('load', () => {
-    console.log('페이지 로드 완료. 라이브러리 확인 시작...');
-    setTimeout(checkLibrariesAndInit, 100); // 약간의 지연 후 확인
-}); 
+    console.log('인트로 시작');
+    // 인트로가 끝나면 startGame() 함수가 호출됨
+});
+
+// 게임 시작 함수 (인트로)
+window.startGame = function() {
+    console.log('게임 시작');
+    init();
+    animate();
+};
+
+// 전역 함수로 노출
+window.checkLibrariesAndInit = checkLibrariesAndInit;
+window.startGame = startGame; 
