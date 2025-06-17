@@ -18,23 +18,55 @@ let currentChar = 0;
 const subtitle = document.getElementById("subtitle");
 const gameTitle = document.getElementById("gameTitle");
 const startButton = document.getElementById("startButton");
+const typingSound = document.getElementById("typingSound");
+const moonSound = document.getElementById("moonSound");
+const titleSound = document.getElementById("titleSound");
+
+let audioInitialized = false;
+
+function initializeAudio() {
+    if (!audioInitialized) {
+        // 오디오 요소들을 미리 로드
+        if (typingSound) typingSound.load();
+        if (moonSound) moonSound.load();
+        if (titleSound) titleSound.load();
+        audioInitialized = true;
+    }
+}
 
 function typeNextChar() {
     if (currentLine >= introScript.length) {
+        if (typingSound) typingSound.pause();
         startButton.style.display = "inline-block";
         gameTitle.style.display = "block";
+        if (titleSound) {
+            titleSound.currentTime = 0;
+            titleSound.play().catch(e => console.log("오디오 재생 실패:", e));
+        }
         return;
     }
 
     const line = introScript[currentLine];
+    
+    if (currentChar === 0) {
+        if (typingSound) {
+            typingSound.currentTime = 0;
+            typingSound.play().catch(e => console.log("오디오 재생 실패:", e));
+        }
+    }
 
     if (currentChar < line.length) {
         subtitle.innerHTML += line[currentChar];
         currentChar++;
         setTimeout(typeNextChar, 50);
     } else {
+        if (typingSound) typingSound.pause();
         if (currentLine === 3) {
             initMoonAnimation();
+            if (moonSound) {
+                moonSound.currentTime = 0;
+                moonSound.play().catch(e => console.log("오디오 재생 실패:", e));
+            }
         }
         subtitle.innerHTML += "<br/>";
         currentLine++;
@@ -46,13 +78,14 @@ function typeNextChar() {
     }
 }
 
+// 페이지 로드 시 오디오 초기화
 window.addEventListener('load', () => {
-            setTimeout(typeNextChar, 1000);
-        });
-
-
-
-
+    initializeAudio();
+    // 사용자 상호작용을 기다린 후 타이핑 시작
+    document.addEventListener('click', () => {
+        setTimeout(typeNextChar, 1000);
+    }, { once: true });
+});
 
 let moonScene, moonCamera, moonRenderer, moonMesh;
 
@@ -83,10 +116,6 @@ function animateMoon() {
     moonMesh.rotation.y += 0.01;
     moonRenderer.render(moonScene, moonCamera);
 }
-
-
-
-
 
 function startGame() {
     const intro = document.getElementById('introScreen');
